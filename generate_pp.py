@@ -4,16 +4,21 @@ import pathlib, acts, acts.examples, os
 from acts.examples.simulation import addPythia8, MomentumConfig, EtaConfig, ParticleConfig, addFatras, addDigitization, ParticleSelectorConfig
 from acts.examples.reconstruction import addSeeding, addCKFTracks, TrackSelectorConfig, TruthSeedRanges, CkfConfig
 from acts.examples.odd import getOpenDataDetector
+import sys
 
-chi2cut = 300.0
-event_set = 1
+# BEGIN INPUTS
+
+chi2cut = 15.0 # Default: 15
 
 actsdir = "/home/max_zhao/acts/"
-datadir = "/global/cfs/cdirs/atlas/max_zhao/mlkf/trackml/1000events/event_set{}/".format(event_set)
-nevents = 100
+datadir = "/global/cfs/cdirs/atlas/max_zhao/mlkf/trackml/test_events/eval_test/"
+nevents = 5
 cms_energy = 14 #TeV
 npileup = 200
 detector = "generic"
+rnd_seed = 1234
+
+# END INPUTS
 
 u = acts.UnitConstants
 outputDir = datadir+"ttbar"+str(npileup)+"_"+str(nevents)+"/"
@@ -38,7 +43,7 @@ else:
     print("Choose odd or generic detector")
 
 field = acts.ConstantBField(acts.Vector3(0.0, 0.0, 2.0 * u.T))
-rnd = acts.examples.RandomNumbers(seed=42+event_set)
+rnd = acts.examples.RandomNumbers(seed=rnd_seed)
 
 s = acts.examples.Sequencer(events=nevents, numThreads=1, outputDir=str(outputDir))
 
@@ -99,15 +104,5 @@ addCKFTracks(
     writeCovMat=True
 #    outputDirCsv=outputDirCsv,
 )
-
-# addCKFTracks(
-#     s,
-#     trackingGeometry,
-#     field,
-#     CKFPerformanceConfig(ptMin=1.0 * u.GeV, nMeasurementsMin=6),
-#     TrackSelectorRanges(pt=(1.0 * u.GeV, None), absEta=(None, 3.0), removeNeutral=True),
-#     outputDirRoot=outputDir,
-# #    outputDirCsv=outputDirCsv,
-# )
 
 s.run()

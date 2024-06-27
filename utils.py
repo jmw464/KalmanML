@@ -3,6 +3,14 @@ import h5py
 import pandas as pd
 
 def arctan(y, x):
+    """
+    Computes the polar coordinate of a point (x, y). Ranges from [0, 2pi)
+    ---
+    x   : float
+    y   : float
+    ---
+    phi : float : Polar coordinate
+    """
     raw_phi = np.arctan2(y, x)
     phi = raw_phi if raw_phi >= 0 else 2*np.pi + raw_phi
     return phi
@@ -26,13 +34,15 @@ class Geometry:
     t_bounds = {}
     # Thickness bounds of layers: r if barrel and z if endcap
     u_bounds = {}
-    # Dictionary with detector[volume][layer] being a pandas Dataframe module
+    # Dictionary with detector_map[volume][layer] being a pandas Dataframe module
     detector_map = {}
+    # Dictionary with transformations_map[volume, layer, module] being (rotation_matrix, center)
+    # Local cartesian coordinates can be transformed to global coordinates with rotation_matrix @ uvw + center
     transformations_map = {}
 
     def __init__(self, detector_path, bmap):
         """
-        Initializes geometry object
+        Initializes Geometry object from detector file specifying all modules.
         ---
         detector_path   : string        : path to detector file from https://www.kaggle.com/competitions/trackml-particle-identification/data
         bmap            : BFieldMap     : B field object
@@ -85,17 +95,11 @@ class Geometry:
                                 z_min = corner_z 
 
                             corner_u = corner_r if vol in self.BARRELS else corner_z
-                            # corner_t = corner_z if vol in self.BARRELS else corner_r
 
                             if corner_u > u_max:
                                 u_max = corner_u
                             elif corner_u < u_min:
                                 u_min = corner_u
-
-                            # if corner_t > t_max:
-                            #     t_max = corner_t
-                            # elif corner_t < t_min:
-                            #     t_min = corner_t
                 
                 if vol not in self.u_bounds:
                     self.u_bounds[vol] = {}
@@ -113,11 +117,12 @@ class Geometry:
             z_max += self.Z_BUFFER
             self.volume_bounds[vol] = np.array([r_min, r_max, z_min, z_max])
 
-    def nearest_layer(self, point):
+    def nearest_layer(self, point, only_volume=False):
         """
         Find the nearest layer to a given space point
         ---
         point       : array(3)  : space point in cartesian coordinates
+        only_volume : bool      : Whether or not to only return the volume of the space point. Saves time if this is all you want.
         ---
         volume      : int       : volume id for nearest layer
         layer       : int       : layer id for nearest layer
@@ -132,6 +137,9 @@ class Geometry:
             if self.volume_bounds[vol][0] <= point_r <= self.volume_bounds[vol][1] and self.volume_bounds[vol][2] <= point_z <= self.volume_bounds[vol][3]:
                 volume = vol
                 break
+
+        if only_volume:
+            return volume
         
         if volume is None:
             layer = None
@@ -149,6 +157,16 @@ class Geometry:
         return volume, layer, distance
 
     def nearest_modules(self, volume, layer, point, nmodules=4):
+        """
+        Find the nmodules nearest modules
+        ---
+        volume          : int           : volume in which to search
+        layer           : int           : layer in which to search
+        point           : float(3)      : Global cartesian coordinates of the point
+        nmodules        : int           : Number of modules to return. Default = 4 for the case where a point is on or near a 4-point module corner.
+        ---
+        closest_modules : pd.DataFrame  : dataframe of module information
+        """
         lay_modules = self.detector_map[volume][layer]
         square_distances = (lay_modules.cx - point[0])**2 + (lay_modules.cy - point[1])**2 + (lay_modules.cz - point[2])**2
         indices = np.argpartition(square_distances, nmodules)
@@ -156,9 +174,27 @@ class Geometry:
         return closest_modules
 
     def get_transformation(self, volume, layer, module_id):
+        """
+        Getter for transformation information for a specific module. Transform local to global coordinates with rotation_matrix @ uvw + center
+        ---
+        volume          : int           : volume of module
+        layer           : int           : layer of module
+        module_id       : int           : module id as specified in the detector file
+        ---
+        rotation_matrix : float(3, 3)   : rotates module local coordinates to be in line with global coordinates
+        center          : float(3)      : shifts to global coordinates centered on the beamline
+        """
         return self.transformations_map[volume, layer, module_id]
 
 def check_module_boundary(u, v, module):
+    """
+    ---
+    u               : bool  : local coordinate as defined on the kaggle site
+    v               : bool  : local coordinate as defined on the kaggle site
+    module          : int   : module id as specified in the detector file
+    ---
+    within_module   : bool  : If the point is within the boundary of the module trapezoid
+    """
     if module.module_maxhu == module.module_minhu:
         within_module = abs(v) <= module.module_hv and abs(u) <= module.module_maxhu
     else:
@@ -166,17 +202,19 @@ def check_module_boundary(u, v, module):
         within_module = abs(v) <= module.module_hv and v >= side_boundary(u, 1) and v >= side_boundary(u, -1)
     return within_module
 
-class HitLocator: 
+class HitLocator:
+    # Naked data structure that stores the hits
     hit_map = {}
     # arrays of all hits on layer
     full_layers = {}
+    # Geometry object for the detector
     geometry = None
 
     def __init__(self, resolution, geometry):
         """
-        Initialize the data structure with empty cells using geometry object.
+        Initialize the data structure with empty cells using Geometry object.
         ---
-        resolution      : float     : width of cells
+        resolution      : float     : width of cells in mm
         geometry        : Geometry  : geometry object for the detector
         """
         assert type(geometry) == Geometry
@@ -260,7 +298,7 @@ class HitLocator:
         volume  : int
         layer   : int
         ---
-        hits    : array(10,n)
+        hits    : array(d,n)
         """
         return self.full_layers[volume, layer]
 
@@ -273,7 +311,7 @@ class HitLocator:
         center  : (float, float)    : point around which to collect hits. Of the form (phi, t) where t = z if barrel volume and r if endcap
         area    : (float, float)    : range with which to collect hits. Essentially collect hits with coordinate in center +- area
         ---
-        hits    : array             : array of hits
+        hits    : float(d,n)        : array of hits
         """
         assert area[0] > 0 and area[1] > 0
 
@@ -299,13 +337,13 @@ class HitLocator:
 
     def get_hits_around(self, volume, layer, center, radius):
         """
-        Gets all hits around a point defined by a charicteristic distance.
-        ```
+        Gets all hits around a point defined by a characteristic distance.
+        ---
         volume  : int               : volume that contains the layer
         layer   : int               : layer number
         center  : (float, float)    : point around which to collect hits. Of the form (phi, t) where t = z if barrel volume and r if endcap
         radius  : float             : radius around which to collect hits.
-        ```
+        ---
         hits    : List              : list of hits
         """
         area = np.empty(2)
@@ -318,6 +356,10 @@ class HitLocator:
 
         return self.get_near_hits(volume, layer, center, area)
 
-class BFieldMap:         
+class BFieldMap:
+    """
+    B Field object. Currently only supports a uniform magnetic field in the z direction.
+    In principle, rewriting the get method that returns the magnetic field direction at a point should work, but this is untested.
+    """
     def get(self, pos):
         return np.array([0, 0, 2])

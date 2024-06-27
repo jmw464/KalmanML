@@ -6,10 +6,12 @@ import time
 import matplotlib.pyplot as plt
 
 def main(argv):
-    hits_path = "/global/cfs/cdirs/atlas/max_zhao/mlkf/trackml/muons6000_100/processed/hits.hdf5"
-    measurements_path = "/global/cfs/cdirs/atlas/max_zhao/mlkf/trackml/muons6000_100/processed/measurements.hdf5"
+    event_set = int(argv[1])
+    indir = "/global/cfs/cdirs/atlas/max_zhao/mlkf/trackml/500ev_chi15/event_set{}/ttbar200_100/".format(event_set)
     detector_path = "/global/homes/m/max_zhao/mlkf/trackml/data/detectors.csv"
 
+    hits_path = indir + "processed/hits.hdf5"
+    measurements_path = indir + "processed/measurements.hdf5"
     geometry = utils.Geometry(detector_path, utils.BFieldMap())
 
     hits_file = h5py.File(hits_path, "r")
@@ -23,7 +25,6 @@ def main(argv):
 
         start_time = time.time()
         for vol_id in hits_file[event_id].keys():
-            start_time = time.time()
 
             event = int(event_id)
             vol = int(vol_id)
@@ -72,15 +73,16 @@ def main(argv):
             group.create_dataset("hits", data=new_vol_hits)
 
         print("Event {} time: {:.3f}".format(event_id, time.time() - start_time))
+        start_time = time.time()
 
-    print("Total overlaps:", overlaps)
+    print("Total overlaps:"s, overlaps)
 
-    for vol in differences:
-        plt.figure(figsize=(8,6))
-        plt.yscale("log")
-        plt.hist(differences[vol], bins=40)
-        plt.xlabel("Distance (mm)")
-        plt.savefig("/global/homes/m/max_zhao/bin/new_meas_diff{}.png".format(vol))
+    # for vol in differences:
+    #     plt.figure(figsize=(8,6))
+    #     plt.yscale("log")
+    #     plt.hist(differences[vol], bins=40)
+    #     plt.xlabel("Distance (mm)")
+    #     plt.savefig("/global/homes/m/max_zhao/bin/new_meas_diff{}.png".format(vol))
 
     hits_file.close()
     meas_file.close()

@@ -1,33 +1,42 @@
 #!/usr/bin/env python
 
-import os,sys,math,glob,ROOT,h5py
+import os,sys,math,glob,h5py
 import numpy as np
 import torch as th
 import torch.nn as nn
 import matplotlib.pyplot as plt
-from ROOT import gROOT, TFile, TH1D, TLorentzVector, TCanvas, TTree, gDirectory, TChain, TH2D
+#from ROOT import gROOT, TFile, TH1D, TLorentzVector, TCanvas, TTree, gDirectory, TChain, TH2D
 
 from evaluation_model import *
 
 
 def main(argv):
-    gROOT.SetBatch(True)
+    #gROOT.SetBatch(True)
+
+    # BEGIN INPUT
 
     use_gpu = True
     load_checkpoint = True
     freeze_linear = False
     freeze_transformer = False
 
-    runnumber = 0
-    nepochs = 10
-    batch_size = 15
-    train_prop = 0.8
-    val_prop = 0.1
-    max_len = 25
+    cartesian = False
+
+    # Run 3: big model (all 0.03)
+    # Run 10: 100 events, chi2 = 15, 50 epochs, 2 Transformer layer
+    # Run 11: 100 events, chi2 = 15, 50 epochs, 1 Transformer layer
+    runnumber = 10
+    nepochs = 50
+    batch_size = 512
+    train_prop = 0
+    val_prop = 0
+    max_len = 30
     class_threshold = 0.5
 
-    indir = "/global/cfs/cdirs/atlas/jmw464/mlkf_data/data/processed/"
-    outdir = "/global/homes/j/jmw464/ATLAS/KalmanML/data/"
+    # END INPUT
+
+    indir = "/global/cfs/cdirs/atlas/max_zhao/mlkf/trackml/test_events/eval_test/ttbar200_5/processed/"
+    outdir = "/global/homes/m/max_zhao/mlkf/trackml/models/evaluation/"
 
     #---------------------------- IMPORT DATA ----------------------------
 
@@ -39,6 +48,31 @@ def main(argv):
     ntracks = track_truth.shape[0]
     train_idx = round(ntracks*train_prop)
     val_idx = round(ntracks*(train_prop+val_prop))
+
+    if cartesian:
+        track_meas = np.array(track_meas)
+        track_meas[:,:,3:6] = track_truth[:,:,2:5]
+
+    # match_counts = np.empty(track_truth.shape[0])
+    # total_counts = np.empty(track_truth.shape[0])
+    # for i in range(track_truth.shape[0]):
+    #     assert np.all(np.equal(track_truth[i,:,0], (track_truth[i,:,1] == track_truth[i,0,1]).astype(float)))
+    #     nonpad = track_truth[i,:,0][track_truth[i,:,1] > 1]
+    #     match_counts[i] = np.sum(nonpad) # np.sum(nonpad) / nonpad.shape[0]
+    #     total_counts[i] = nonpad.shape[0]
+
+    # plt.figure(figsize=(8,6))
+    # plt.hist(match_counts, bins=20, color="blue", label="nmatch", histtype="step")
+    # plt.hist(total_counts, bins=20, color="orange", label="ntotal", histtype="step")
+    # # plt.hist(match_counts / total_counts, bins=20, label="Proportions")
+    # plt.legend()
+    # plt.savefig("props.png") 
+    
+    # tracks_file.close()
+    # return 1
+
+    # track_meas = np.array(track_meas)
+    # track_meas[:,:,-1] = track_truth[:,:,0]
 
     train_loader = th.utils.data.DataLoader([[track_meas[i], track_truth[i,:,:1]] for i in range(train_idx)], shuffle=False, batch_size=batch_size)
     val_loader = th.utils.data.DataLoader([[track_meas[i], track_truth[i,:,:1]] for i in range(train_idx, val_idx)], shuffle=False, batch_size=batch_size)
@@ -57,7 +91,8 @@ def main(argv):
     else:
         device = th.device('cpu')
 
-    model = EvalNN(7,10,2,10,False,0.1,max_len).double().to(device)
+    # model = EvalNN(7,128,2,10,False,0.1,max_len).double().to(device)
+    model = EvalNN(7,128,2,2,False,0.1,max_len).double().to(device)
     optimizer = th.optim.Adam(model.parameters(), lr=0.001)
     loss = nn.BCELoss()
 
@@ -96,6 +131,9 @@ def main(argv):
 
         for ibatch, data in enumerate(train_loader):
             batch, train_labels = data
+            batch = batch.to(device)
+            train_labels = train_labels.to(device)
+
             pred = model(batch)
             pred_lt = loss(pred, train_labels)
             train_loss_array[epoch-1] += pred_lt.item()
@@ -113,6 +151,9 @@ def main(argv):
         model.eval()
         for ibatch, data in enumerate(val_loader):
             batch, val_labels = data
+            batch = batch.to(device)
+            val_labels = val_labels.to(device)
+
             pred = model(batch)
             pred_lt = loss(pred, val_labels)
             val_loss_array[epoch-1] += pred_lt.item()
@@ -130,17 +171,41 @@ def main(argv):
         model.eval()
         for ibatch, data in enumerate(test_loader):
             batch, test_labels = data
+            batch = batch.to(device)
+            test_labels = test_labels.to(device)
+
             pred = model(batch)
             pred_lt = loss(pred, test_labels)
             test_loss += pred_lt.item()
 
             test_labels[batch[:,:,0] == 0] = -1 #mark empty hits as -1
 
-            test_results[track_index:track_index+batch.shape[0],:,:1] = pred
-            test_results[track_index:track_index+batch.shape[0],:,1:] = test_labels
+            test_results[track_index:track_index+batch.shape[0],:,:1] = pred.cpu()
+            test_results[track_index:track_index+batch.shape[0],:,1:] = test_labels.cpu()
+
             track_index += batch.shape[0]
 
+    print(np.min(test_results[:,:,0]), np.max(test_results[:,:,0]))
+    plt.figure(figsize=(8,6))
+    plt.hist(test_results[:,:,0], bins=20)
+    plt.xlabel("Prediction")
+    plt.title("Distribution of test set predictions")
+    plt.savefig(outdir+str(runnumber)+"/test_pred.png")
+
+    print(np.sum(test_results[:,:,0]))
     test_results[:,:,0] = test_results[:,:,0] > class_threshold #round predictions based on chosen threshold
+    print(np.sum(test_results[:,:,0]))
+    print(np.sum(test_results[:,:,1] > class_threshold))
+
+    predicted = test_results[:,:,0].flatten()
+    actual = test_results[:,:,1].flatten()
+    predicted = predicted[actual >= 0]
+    actual = actual[actual >= 0]
+    fpr = np.sum(1 - predicted[actual < 0.5]) / np.sum(actual < 0.5)
+    fnr = np.sum(predicted[actual > 0.5]) / np.sum(actual > 0.5)
+    print(fpr, fnr, np.sum(actual < 0.5) / np.sum(actual > 0.5))
+
+    print("Accuracy:", np.sum(test_results[:,:,0] == test_results[:,:,1]) / np.sum(test_results[:,:,1] > -0.5))
 
     test_loss = test_loss/ntest
     print("--------------------------------------------")

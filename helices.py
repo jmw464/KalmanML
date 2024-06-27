@@ -6,13 +6,22 @@ import scipy.stats as stats
 import matplotlib.pyplot as plt
 
 class Helix:
+    # The 3 points to which the helix is fitted
     points = None
+    # After aligning the B field with the z direction,
+    # this is the center of the circle interpolated to the points projected to the xy-plane
     center = None
+    # Radius of the circle interpolated to the points projected to the xy-plane
     radius = None
+    # Phase of the parameterization 
     phi = None
+    # Angular frequency of the parameterization
     omega = None
+    # Rotation matrix to go to the coordinate system where B is pointed in the z-direction
     Rot = None
+    # Inverse of Rot, equal to transpose of Rot_inv
     Rot_inv = None
+    # The point in points to start stepping from, either given or automatically chosen as the furthest one from the origin.
     start_point = None
 
     def __init__(self):
@@ -22,8 +31,10 @@ class Helix:
         """
         Solves a helix from three space points given the local direction of the B field
         ---
-        p1, p2, p3  : array(3)  : space points in cartesian coordinates
-        B           : array(3)  : direction of B field, magnitude unimportant
+        p1, p2, p3  : float(3)  : space points in cartesian coordinates
+        B           : float(3)  : direction of B field, magnitude unimportant
+        ---
+        success     : bool      : Whether the helix was successfully solved
         """
         self.points = np.array([p1, p2, p3])
         dists = [np.sum(p**2) for p in self.points]
@@ -38,7 +49,10 @@ class Helix:
             cd = (temp - p3[0] * p3[0] - p3[1] * p3[1]) / 2
             det = (p1[0] - p2[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p2[1])
 
-            assert abs(det) > 1.0e-6, "Points in a straight line"
+        
+            # assert abs(det) > 1.0e-6, "Points in a straight line"
+            if abs(det) < 1.0e-6:
+                raise ValueError
 
             # Center of circle
             cx = (bc*(p2[1] - p3[1]) - cd*(p1[1] - p2[1])) / det
@@ -71,6 +85,7 @@ class Helix:
         p3r = self.Rot @ p3
     
         self.center, self.radius = define_circle(p1r[:2], p2r[:2], p3r[:2])
+        
         p1r -= self.center
         p2r -= self.center
         p3r -= self.center
@@ -81,9 +96,7 @@ class Helix:
 
         angles = np.empty(rotated_points.shape[0])
         for i, p in enumerate(rotated_points):
-            #theta = np.arctan2(p[1], p[0])
             angles[i] = utils.arctan(p[1], p[0])
-            #theta if theta >= 0 else 2*np.pi + theta
                                 
         pos_angles = np.copy(angles)
         for i in [1, 2]:
@@ -96,9 +109,16 @@ class Helix:
                 neg_angles[i] -= 2*np.pi
                                                                                                                         
         angles = pos_angles if abs(pos_angles[1] - pos_angles[0]) < abs(neg_angles[1] - neg_angles[0]) else neg_angles
-                                                                                                                                        
-        result = stats.linregress(rotated_points[:,-1], angles)
+
+        try:
+            result = stats.linregress(rotated_points[:,-1], angles)
+        except ValueError:
+            print("Linear regression error:", [p1, p2, p3])
+            print(rotated_points[:,-1])
+            return False
+        
         self.omega, self.phi = result.slope, result.intercept
+        return True
         
     def curve(self, t):
         """
@@ -106,7 +126,7 @@ class Helix:
         ---
         t       : float     : Parametric variable
         ---
-        pos     : array(3)  : Spacial position of the helix in cartesian coordinates
+        pos     : float(3)  : Spacial position of the helix in cartesian coordinates
         """
         x = self.radius * np.cos(self.omega * t + self.phi) + self.center[0]
         y = self.radius * np.sin(self.omega * t + self.phi) + self.center[1]
@@ -117,9 +137,10 @@ class Helix:
         """
         Generator function that yields spaces points on helix
         ---
-        stepsize        : float       : Spacial stepsize between consecutive points on helix to be yielded
+        stepsize        : float         : Spacial stepsize between consecutive points on helix to be yielded
         ---
-        point           : float(3)    : Next point on the helix
+        point           : float(3)      : Next point on the helix
+        t               : float(3)      : Time of next point. NB: This is not a physical time, only a parameterization
         """
         THRESHOLD_RADIUS = 1000 # Radius at which we assume the particle will make at most 1 precession.
         
@@ -131,8 +152,6 @@ class Helix:
 
         start_r = np.sqrt(np.sum(start_rot**2))
         if start_rot[2] < start_r and self.radius > THRESHOLD_RADIUS:
-            #start_phi_raw = np.arctan2(start_rot[1], start_rot[0])
-            #start_phi = start_phi_raw if start_phi_raw >= 0 else 2*np.pi + start_phi_raw
             start_phi = utils.arctan(start_rot[1], start_rot[0])
             t = (start_phi - self.phi) / self.omega
         else:
@@ -153,7 +172,7 @@ def newton_intersection(helix, module, start_t):
     module  : pd.Dataframe  : module specifications loaded from standard detector file
     start_t : float         : initial estimation parametric variable, i.e. helix.curve(start_t) is near the module
     ---
-    pos     : array(3)      : position of the intersection
+    pos     : float(3)      : position of the intersection
     """
     module_center = np.array([module.cx, module.cy, module.cz])
     module_rotation = np.array([
@@ -169,25 +188,10 @@ def newton_intersection(helix, module, start_t):
     try:
         intersection_time = opt.newton(lambda t: curve_mf(t)[2], start_t) 
     except(RuntimeError):
-        # print(helix.points)
-        # print(module)
-        # print(start_t)
-        rnum = np.random.rand()
-        if rnum < 0.01:
-            times = np.linspace(start_t - 100, start_t + 100)
-            plt.figure()
-            plt.plot(times, list(map(lambda t: curve_mf(t)[2], times)))
-            plt.savefig("/global/homes/m/max_zhao/bin/newton{}.png".format(int(rnum*10000)))
-            plt.close()
         return None
     
     # Check if intersection is within module boundaries
     u, v, w = curve_mf(intersection_time)
-    # if module.module_maxhu == module.module_minhu:
-    #     within_module = abs(v) <= module.module_hv and abs(u) <= module.module_maxhu
-    # else:
-    #     side_boundary = lambda x, side: side*(2*module.module_hv / (module.module_maxhu - module.module_minhu)) * (x - side*0.5*(module.module_maxhu + module.module_minhu))
-    #     within_module = abs(v) <= module.module_hv and v >= side_boundary(u, 1) and v >= side_boundary(u, -1)
 
     if not utils.check_module_boundary(u, v, module):
         return None
@@ -201,7 +205,7 @@ def find_helix_intersection(helix, geometry, stepsize):
     geometry            : pd.Dataframe  : dataframe with entries being all modules in the detector
     stepsize            : float         : step size with which to go along the helix before applying Newton's method, in mm.
     ---
-    intersection        : array(3)      : spacial position of intersection
+    intersection        : float(3)      : spacial position of intersection
     intersection_vol    : int           : volume id for intersection layer
     intersection_lay    : int           : layer id for intersection layer
     """
@@ -244,17 +248,21 @@ def get_next_hits(points, stepsize, radius, hit_locator, geometry):
     """
     Find all plausible next hits given last three hits
     ---
-    points      : array(3,3)        : last three points of track candidate
-    stepsize    : float             : step size in mm with which to step on helix
-    radius      : float             : search radius in mm around helix intersection
-    hit_locator : utils.HitLocator  : hit locating object
-    geometry    : utils.Geometry    : detector geometry object
+    points          : float(3,3)        : last three points of track candidate
+    stepsize        : float             : step size in mm with which to step on helix
+    radius          : float             : search radius in mm around helix intersection
+    hit_locator     : utils.HitLocator  : hit locating object
+    geometry        : utils.Geometry    : detector geometry object
     ---
-    hits        : array(10,n)       : next hits
+    hits            : float(10,n)       : next hits
+    intersection    : float(3,3)        : helix intersection where hits are found
     """
     helix = Helix()
     avg_pos = np.mean(points, axis=0)
-    helix.solve(points[0], points[1], points[2], geometry.bmap.get(avg_pos))
+    solve_success = helix.solve(points[0], points[1], points[2], geometry.bmap.get(avg_pos))
+    if not solve_success:
+        print("Helix solver broken")
+        return None, None
     intersection, inter_vol, inter_lay = find_helix_intersection(helix, geometry, stepsize)
    
     if intersection is None:

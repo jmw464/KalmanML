@@ -7,14 +7,17 @@ from ROOT import gROOT, TFile, TH1D, TLorentzVector, TCanvas, TTree, gDirectory,
 import uproot
 import time
 
-
 def main(argv):
     gROOT.SetBatch(True)
+    
+    # BEGIN INPUT
 
     nvar = 12 #number of stored variables for each hit (includes event, volume, layer and module number)
 
-    indir = "/global/cfs/cdirs/atlas/jmw464/mlkf_data/shell/ttbar200_50/"
+    indir = "/global/cfs/cdirs/atlas/max_zhao/mlkf/trackml/test_events/eval_test/ttbar200_5/"
     outdir = indir+"processed/"
+
+    # END INPUT
 
     if not os.path.exists(outdir): os.mkdir(outdir)
 
@@ -80,10 +83,23 @@ def main(argv):
     truth_data[:,6] = hits_tree["sensitive_id"].array(library="np")
     truth_data[:,7] = hits_tree["particle_id"].array(library="np")
     truth_data = truth_data[truth_data[:,0].argsort(kind="mergesort")] #sort by event
-  
-    match_array = np.logical_and(np.in1d(truth_data[:,1], data[:,8]), np.in1d(truth_data[:,2], data[:,9])) #match hits from hits file to hits from measurements file
-    truth_data = truth_data[match_array]
-    data[:,-1] = truth_data[:,-1]
+
+    start_time = time.time()
+    curr_event = -1
+    for i in range(data.shape[0]):
+        if i % 10000 == 0:
+            duration = time.time() - start_time
+            eta = (1/3600) * duration * data.shape[0] / (i + 1)
+            sys.stdout.write("\rElapsed: {} Projected hours: {}".format(duration, eta))
+            sys.stdout.flush()
+        if curr_event != data[i,0]:
+            curr_event = data[i,0]
+            event_truth = truth_data[data[i,0] == truth_data[:,0]]
+        match_index = np.argwhere(np.logical_and.reduce(
+            [data[i,8] == event_truth[:,1],
+            data[i,9] == event_truth[:,2]]
+        ))[0]
+        data[i,-1] = truth_data[match_index,-1]
 
     print("Writing file. Time elapsed: {} seconds".format(time.time()-start_time))
 
