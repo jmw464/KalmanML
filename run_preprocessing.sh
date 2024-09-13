@@ -1,7 +1,7 @@
 #!/bin/bash
 
 DATA_DIR=/global/cfs/cdirs/atlas/jmw464/mlkf_data/new
-DATASET=muon_50p_100e
+DATASET=ttbar_200p_100e
 OVERWRITE=1
 
 if [[ $OVERWRITE == 1 ]]; then
@@ -17,14 +17,14 @@ echo "##############################"
 echo "------------------------------"
 
 echo "RUNNING import_hits"
-python scripts/process/import_hits.py --in_dir ${DATA_DIR}/${DATASET}/ --out_dir ${DATA_DIR}/${DATASET}/processed/ ${OVERWRITE_FLAG}
+python scripts/process/import_hits.py --in_dir ${DATA_DIR}/${DATASET}/ --out_dir ${DATA_DIR}/${DATASET}/preprocessed/ ${OVERWRITE_FLAG}
 
 echo "------------------------------"
 
 echo "RUNNING import_particles"
-python scripts/process/import_particles.py --in_dir ${DATA_DIR}/${DATASET}/ --out_dir ${DATA_DIR}/${DATASET}/processed/ ${OVERWRITE_FLAG}
+python scripts/process/import_particles.py --in_dir ${DATA_DIR}/${DATASET}/ --out_dir ${DATA_DIR}/${DATASET}/preprocessed/ ${OVERWRITE_FLAG}
 
 echo "------------------------------"
 
 echo "RUNNING import_tracks"
-python scripts/process/import_tracks.py --in_dir ${DATA_DIR}/${DATASET}/ --out_dir ${DATA_DIR}/${DATASET}/processed/ ${OVERWRITE_FLAG}
+python scripts/process/import_tracks.py --in_dir ${DATA_DIR}/${DATASET}/ --out_dir ${DATA_DIR}/${DATASET}/preprocessed/ ${OVERWRITE_FLAG}
