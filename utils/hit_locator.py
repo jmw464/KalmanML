@@ -26,7 +26,7 @@ class HitLocator:
             vol_map = {}
             if volume in self.geometry.BARRELS:
                 min_z, max_z = self.geometry.t_bounds[volume]
-                
+
                 for layer in self.geometry.u_bounds[volume]:              
                     diameter = 2*np.mean(self.geometry.u_bounds[volume][layer])
 
@@ -50,49 +50,49 @@ class HitLocator:
             self.hit_map[volume] = vol_map
 
 
-    def load_hits(self, hits_path, event_id, hit_type="m", layers_to_save=None):
+    def load_hits(self, hits_file, event_id, hit_type="m", layers_to_save=None):
         """
         Load hits into data structure from hits file
         ---
-        hits_path       : String        : path to hits file
+        hits_file       : h5 file       : file containing hit information
         event_id        : int           : event to store
-        hit_type        : char          : Type of hit, "m" for measurements and "t" for truth hits
+        hit_type        : char          : type of hit, "m" for measurements and "t" for truth hits
         layers_to_save  : set (tuples)  : layers that should be stored in full arrays
         """
         assert hit_type == "m" or hit_type == "t", "hit_type must be t or m"
+
         if layers_to_save is None:
             layers_to_save={(8,2), (8,4), (7,14), (9,2), (8,6), (7,12), (9,4)}
-        volumes_to_save = {vol for vol, lay in layers_to_save}
+        volumes_to_save = {vol for vol, _ in layers_to_save}
 
-        event_id = str(event_id)
-        f = h5py.File(hits_path, "r")
-
-        for volume_id in f[event_id].keys():
+        for volume_id in hits_file[str(event_id)].keys():
             volume = int(volume_id)
-            vol_range = self.geometry.t_bounds[volume] #self.t_range[volume]
-            vol_hits = f[event_id + "/" + volume_id + "/hits"]
+            vol_range = self.geometry.t_bounds[volume]
+            vol_hits = hits_file[str(event_id) + "/" + volume_id + "/hits"]
 
             if volume in volumes_to_save:
                 for layer in self.geometry.u_bounds[volume]:
                     if (volume, layer) in layers_to_save:
-                        self.full_layers[(volume, layer)] = vol_hits[vol_hits[:,0] == layer]
+                        self.full_layers[(volume, layer)] = vol_hits[vol_hits["layer_id"][:] == layer]
 
             for hit in vol_hits:
-                layer = hit[0]
+                layer = hit['layer_id']
                 lay_map = self.hit_map[volume][layer]
-                x, y, z = hit[10:13] if hit_type == "m" else hit[6:9]
 
-                phi = arctan(y, x)
+                # TODO: add way to retrieve global measurement x, y, z - always use truth for now
+                if hit_type == "m" or hit_type == "t":
+                    x, y, z = hit['true_x'], hit['true_y'], hit['true_z']
+
+                phi = utils.math_utils.arctan(y, x)
                 phi_coord = round((phi / (2 * np.pi)) * (lay_map.shape[0] - 1))
 
                 t = z if volume in self.geometry.BARRELS else np.sqrt(x**2 + y**2)
+                print(x, y, z)
                 
                 assert vol_range[0] <= t <= vol_range[1], str(t) + " Vol: " + str(volume) + " " + str(vol_range)
                 t_coord = round((lay_map.shape[1] - 1) * (t - vol_range[0]) / (vol_range[1] - vol_range[0]))
 
                 lay_map[phi_coord, t_coord].append(hit)
-
-        f.close()
 
 
     def get_layer_hits(self, volume, layer):

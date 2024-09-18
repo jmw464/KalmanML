@@ -1,11 +1,8 @@
 #!/usr/bin/env python
 
-import sys, h5py
-from tqdm import tqdm
+import h5py
 import numpy as np
 
-import utils
-import helices
 
 def truth_seeds(locator, pcut=None):
     """
@@ -26,7 +23,7 @@ def truth_seeds(locator, pcut=None):
     seeds = []
     
     for first_hit in first_layer:
-        particle_id = first_hit[9]
+        particle_id = first_hit["particle_id"]
         seed = [first_hit]
         seed_layers = [(8, 2)]
 
@@ -36,7 +33,7 @@ def truth_seeds(locator, pcut=None):
             found = False
             for layer_tup in next_layer_tups:
                 next_layer = locator.get_layer_hits(*layer_tup)
-                matches = next_layer[next_layer[:,9] == particle_id]
+                matches = next_layer[next_layer["particle_id"] == particle_id]
                 if matches.shape[0] > 0:
                     found = True
                     seed.append(matches[0])

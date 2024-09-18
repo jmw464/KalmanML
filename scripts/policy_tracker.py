@@ -3,7 +3,7 @@ import numpy as np
 import utils
 import helices
 from mcts import Policy_nn
-from triplet_generator import truth_seeds
+from scripts.policy.generate_multiplets import truth_seeds
 import sys
 import h5py
 

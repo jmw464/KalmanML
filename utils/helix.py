@@ -1,31 +1,25 @@
 import numpy as np
-import utils
 import scipy.optimize as opt
 import scipy.stats as stats
 
-import matplotlib.pyplot as plt
+import utils.math_utils
+import utils.geometry
+
 
 class Helix:
-    # The 3 points to which the helix is fitted
-    points = None
-    # After aligning the B field with the z direction,
-    # this is the center of the circle interpolated to the points projected to the xy-plane
-    center = None
-    # Radius of the circle interpolated to the points projected to the xy-plane
-    radius = None
-    # Phase of the parameterization 
-    phi = None
-    # Angular frequency of the parameterization
-    omega = None
-    # Rotation matrix to go to the coordinate system where B is pointed in the z-direction
-    Rot = None
-    # Inverse of Rot, equal to transpose of Rot_inv
-    Rot_inv = None
-    # The point in points to start stepping from, either given or automatically chosen as the furthest one from the origin.
-    start_point = None
+    points = None # 3 points to which the helix is fitted
+    center = None # center of the circle interpolated to the points projected to the xy-plane after aligning the B field with the z direction
+    radius = None # radius of the circle interpolated to the points projected to the xy-plane
+    phi = None # phase of the parameterization 
+    omega = None # angular frequency of the parameterization
+    Rot = None # rotation matrix to go to the coordinate system where B is pointed in the z-direction
+    Rot_inv = None # inverse of Rot, equal to transpose of Rot_inv
+    start_point = None # point of origin in points to start stepping from (given or chosen automatically as the furthest from the origin)
+
 
     def __init__(self):
         pass
+
 
     def solve(self, p1, p2, p3, B):
         """
@@ -49,8 +43,6 @@ class Helix:
             cd = (temp - p3[0] * p3[0] - p3[1] * p3[1]) / 2
             det = (p1[0] - p2[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p2[1])
 
-        
-            # assert abs(det) > 1.0e-6, "Points in a straight line"
             if abs(det) < 1.0e-6:
                 raise ValueError
 
@@ -60,7 +52,8 @@ class Helix:
 
             radius = np.sqrt((cx - p1[0])**2 + (cy - p1[1])**2)
             return np.array([cx, cy, 0]), radius
-    
+
+
         def rotation_matrix(a, b=np.array([0, 0, 1])):
             if (a == b).all():
                 return np.identity(3)
@@ -96,7 +89,7 @@ class Helix:
 
         angles = np.empty(rotated_points.shape[0])
         for i, p in enumerate(rotated_points):
-            angles[i] = utils.arctan(p[1], p[0])
+            angles[i] = utils.math_utils.arctan(p[1], p[0])
                                 
         pos_angles = np.copy(angles)
         for i in [1, 2]:
@@ -107,7 +100,7 @@ class Helix:
         for i in [1, 2]:
             while neg_angles[i] > neg_angles[i-1]:
                 neg_angles[i] -= 2*np.pi
-                                                                                                                        
+                                                                                                                
         angles = pos_angles if abs(pos_angles[1] - pos_angles[0]) < abs(neg_angles[1] - neg_angles[0]) else neg_angles
 
         try:
@@ -119,7 +112,8 @@ class Helix:
         
         self.omega, self.phi = result.slope, result.intercept
         return True
-        
+
+
     def curve(self, t):
         """
         Parametric equation for the helix
@@ -132,6 +126,7 @@ class Helix:
         y = self.radius * np.sin(self.omega * t + self.phi) + self.center[1]
         z = t
         return self.Rot_inv @ np.array([x, y, z])
+
 
     def stepper(self, stepsize):
         """
@@ -152,7 +147,7 @@ class Helix:
 
         start_r = np.sqrt(np.sum(start_rot**2))
         if start_rot[2] < start_r and self.radius > THRESHOLD_RADIUS:
-            start_phi = utils.arctan(start_rot[1], start_rot[0])
+            start_phi = utils.math_utils.arctan(start_rot[1], start_rot[0])
             t = (start_phi - self.phi) / self.omega
         else:
             t = start_rot[2]
@@ -163,6 +158,7 @@ class Helix:
         while True:
             yield self.curve(t), t
             t += direction * delta_t
+
 
 def newton_intersection(helix, module, start_t):
     """
@@ -193,9 +189,10 @@ def newton_intersection(helix, module, start_t):
     # Check if intersection is within module boundaries
     u, v, w = curve_mf(intersection_time)
 
-    if not utils.check_module_boundary(u, v, module):
+    if not utils.geometry.check_module_boundary(u, v, module):
         return None
     return helix.curve(intersection_time)
+
 
 def find_helix_intersection(helix, geometry, stepsize):
     """
@@ -244,6 +241,7 @@ def find_helix_intersection(helix, geometry, stepsize):
 
     return intersection, intersection_vol, intersection_lay
 
+
 def get_next_hits(points, stepsize, radius, hit_locator, geometry):
     """
     Find all plausible next hits given last three hits
@@ -268,7 +266,7 @@ def get_next_hits(points, stepsize, radius, hit_locator, geometry):
     if intersection is None:
         return None, None
 
-    inter_phi = utils.arctan(intersection[1], intersection[0])
+    inter_phi = utils.math_utils.arctan(intersection[1], intersection[0])
     inter_t = intersection[2] if inter_vol in geometry.BARRELS else np.sqrt(intersection[0]**2 + intersection[1]**2)
     projection = (inter_phi, inter_t)
 
