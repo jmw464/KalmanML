@@ -1,9 +1,28 @@
 #!/usr/bin/env python
 
 import math
+import numpy as np
 import torch as th
 import torch.nn as nn
-import torch.nn.functional as F
+
+class TracksDataset(th.utils.data.Dataset):
+    def __init__(self, inputs, labels, dataset_mask):
+        self.inputs = inputs
+        self.labels = th.tensor(labels)
+        self.dataset_mask = th.tensor(dataset_mask)
+        self.ntracks, self.nhits = labels.shape
+        self.ninputs = len(list(inputs.dtype.names))
+
+    def __len__(self):
+        return self.dataset_mask.sum()
+
+    def __getitem__(self, idx):
+        idx = th.nonzero(self.dataset_mask).flatten()[idx] # get actual index of non-masked element
+        element = self.inputs[idx]
+        inputs = th.tensor(np.vstack([element[field].astype(np.double) for field in element.dtype.names]).transpose())
+        labels = th.unsqueeze(self.labels[idx], -1).double()
+
+        return th.nan_to_num(inputs, nan=0.0), labels
 
 
 class PositionalEncoding(nn.Module):
